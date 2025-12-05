@@ -3,22 +3,48 @@
 import { useWardrobeStore } from './store'
 import FileUpload from './components/FileUpload'
 import { useOnnxModel } from './lib/onnx'
+import { useState, useEffect } from 'react'
 
 export default function Home() {
-  const { garments, addGarment } = useWardrobeStore()
+  const { garments, addGarment, setGarments } = useWardrobeStore()
   // Example of using the hook, model path would be a public URL
   const { loading: modelLoading } = useOnnxModel('/models/classifier.onnx')
+  const [isLoading, setIsLoading] = useState(false)
+
+  // Fetch garments on load
+  useEffect(() => {
+    fetch('http://localhost:8000/api/v1/garments?category=upper_body') // Just an example filter
+      .then(res => res.json())
+      .then(data => setGarments(data))
+      .catch(err => console.error("Failed to fetch garments", err))
+  }, [setGarments])
 
   const handleGarmentUpload = async (file: File) => {
-    // In production, upload to backend (S3/MinIO) via API
-    // Here we just simulate local state update
-    const mockUrl = URL.createObjectURL(file)
-    addGarment({
-      id: Date.now(),
-      image_url: mockUrl,
-      name: file.name,
-      category: 'Unclassified'
-    })
+    setIsLoading(true)
+    try {
+      // 1. Create FormData
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('category', 'unknown') // TODO: infer category
+
+      // 2. Upload to Backend
+      const res = await fetch('http://localhost:8000/api/v1/garments', {
+        method: 'POST',
+        body: formData,
+      })
+      
+      if (!res.ok) throw new Error("Upload failed")
+
+      const savedItem = await res.json()
+
+      // 3. Add to local state
+      addGarment(savedItem)
+    } catch (error) {
+      console.error("Upload Error", error)
+      alert("Failed to upload garment")
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   return (
@@ -29,6 +55,7 @@ export default function Home() {
           <h2 className="text-lg font-semibold mb-4">Add Garment</h2>
           <FileUpload onUpload={handleGarmentUpload} label="Upload Clothing Item" />
           {modelLoading && <p className="text-sm text-gray-500 mt-2">Loading AI Model...</p>}
+          {isLoading && <p className="text-sm text-blue-500 mt-2">Uploading to server...</p>}
         </div>
       </div>
 
@@ -45,12 +72,12 @@ export default function Home() {
               <div key={item.id} className="group relative bg-white rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow">
                 <img 
                   src={item.image_url} 
-                  alt={item.name} 
+                  alt={item.category} 
                   className="w-full h-48 object-cover" 
                 />
                 <div className="p-3">
-                  <p className="font-medium text-sm truncate">{item.name}</p>
-                  <p className="text-xs text-gray-500">{item.category}</p>
+                  <p className="font-medium text-sm truncate">{item.category}</p>
+                  <p className="text-xs text-gray-500">ID: {item.id.slice(0, 8)}</p>
                 </div>
               </div>
             ))}
@@ -60,4 +87,3 @@ export default function Home() {
     </div>
   )
 }
-

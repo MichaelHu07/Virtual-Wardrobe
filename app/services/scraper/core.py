@@ -2,11 +2,14 @@ import logging
 import json
 from bs4 import BeautifulSoup
 from typing import Optional
+from redis.asyncio import Redis
+
 from app.services.scraper.driver import PlaywrightDriver
 from app.services.scraper.parsers.heuristics import ContentParser
 from app.services.scraper.schemas import NormalizedProduct
 from app.services.wardrobe import wardrobe_service, GarmentItemCreate
 from app.db.session import AsyncSessionLocal
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -14,8 +17,18 @@ class ScraperService:
     def __init__(self):
         self.driver = PlaywrightDriver()
         self.parser = ContentParser()
+        self.redis = Redis.from_url(settings.REDIS_URL, decode_responses=True)
+        self.cache_ttl = 86400 # 24 hours
 
     async def scrape_product(self, url: str) -> Optional[NormalizedProduct]:
+        # 1. Check Cache
+        cache_key = f"scraper:{url}"
+        cached_data = await self.redis.get(cache_key)
+        if cached_data:
+            logger.info(f"Cache hit for {url}")
+            return NormalizedProduct(**json.loads(cached_data))
+
+        # 2. Scrape
         html_content = await self.driver.get_page_content(url)
         if not html_content:
             return None
@@ -53,8 +66,11 @@ class ScraperService:
             normalized_sizes=normalized_sizes
         )
         
-        # Persist to DB (Garment Item)
+        # 3. Persist to DB (Garment Item)
         await self._persist_result(product)
+
+        # 4. Cache Result
+        await self.redis.set(cache_key, product.model_dump_json(), ex=self.cache_ttl)
         
         return product
 
@@ -79,4 +95,3 @@ class ScraperService:
             logger.error(f"Failed to persist product: {e}")
 
 scraper_service = ScraperService()
-
