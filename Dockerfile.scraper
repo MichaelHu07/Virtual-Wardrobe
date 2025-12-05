@@ -1,0 +1,29 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+ENV PYTHONDONTWRITEBYTECODE 1
+ENV PYTHONUNBUFFERED 1
+
+# Install system dependencies for Playwright
+RUN apt-get update && apt-get install -y \
+    wget \
+    gnupg \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Install Playwright Browsers
+RUN playwright install chromium
+RUN playwright install-deps chromium
+
+COPY ./app /app/app
+
+# Run as non-root user? 
+# Playwright often needs specific permissions or simpler root for Docker in some CI/CD
+# Using root for simplicity in scraper container, but user is better.
+# Note: Playwright with --no-sandbox allows root.
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+

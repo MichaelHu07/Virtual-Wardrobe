@@ -1,0 +1,31 @@
+FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04
+
+WORKDIR /code
+
+ENV PYTHONDONTWRITEBYTECODE 1
+ENV PYTHONUNBUFFERED 1
+ENV DEBIAN_FRONTEND noninteractive
+
+# Install system dependencies for OpenGL (pyrender/trimesh) and OpenCV
+RUN apt-get update && apt-get install -y \
+    python3.10 \
+    python3-pip \
+    libgl1-mesa-glx \
+    libosmesa6-dev \
+    libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python deps
+COPY requirements.txt .
+RUN pip3 install --no-cache-dir -r requirements.txt
+
+# Copy App
+COPY ./app /code/app
+
+# Create User
+RUN useradd -m appuser
+USER appuser
+
+# Start Celery Worker
+CMD ["celery", "-A", "app.services.tryon_3d.worker", "worker", "--loglevel=info", "--pool=solos"]
+
